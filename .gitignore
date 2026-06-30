@@ -1,1 +1,5 @@
 /target
+config.toml
+.env
+*.local
+/.step
