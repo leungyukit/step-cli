@@ -1,0 +1,21 @@
+# StepFun API key. Can also be set via STEPFUN_API_KEY environment variable.
+api_key = "sk-..."
+
+# OpenAI-compatible endpoint. Defaults to https://api.stepfun.com/v1
+# base_url = "https://api.stepfun.com/v1"
+
+# Default model. Examples: step-2-16k, step-3.5-flash
+model = "step-2-16k"
+
+# Workspace directory. Defaults to the current working directory.
+# workspace = "/path/to/project"
+
+# Allow shell execution without --yolo.
+allow_shell = false
+
+# Maximum number of agent rounds per user message.
+max_rounds = 30
+
+# Optional generation parameters.
+# temperature = 0.7
+# max_tokens = 4096
