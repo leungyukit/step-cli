@@ -1,3 +1,4 @@
+<!-- From: /Users/liangyj/workspace/step-cli/AGENTS.md -->
 # Project Instructions
 
 ## Project Type: Rust
@@ -10,6 +11,8 @@
 - Check: `cargo check`
 - Format: `cargo fmt`
 - Lint: `cargo clippy -- -D warnings`
+- Release build: `cargo build --release`
+- Local release archive: `./scripts/release.sh [target]`
 
 ## Project: step-cli
 
@@ -42,3 +45,11 @@ See `README.md` for user-facing documentation.
 - Tools are async and registered in `src/chat/tools.rs`.
 - Workspace boundaries are enforced by file tools unless `--trust` or `--yolo` is set.
 - The TUI (`step`) is the default when stdout is a terminal; use `--no-tui` for the line REPL.
+
+## Releasing
+
+1. Bump the version in `Cargo.toml` if needed.
+2. Ensure `cargo test` and `cargo clippy -- -D warnings` pass.
+3. Tag the release: `git tag -a v0.1.0 -m "Release v0.1.0" && git push origin v0.1.0`.
+4. The `.github/workflows/release.yml` action will build binaries for Linux (x86_64, aarch64), macOS (x86_64, Apple Silicon), and Windows (x86_64), then create a GitHub Release with the archives.
+5. Locally, `./scripts/release.sh` can build a release archive for the host platform.

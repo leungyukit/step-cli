@@ -23,6 +23,36 @@ skills, background jobs, and MCP.
 
 ## Install
 
+### Prebuilt binaries (recommended)
+
+Download the latest release for your platform from the
+[GitHub Releases](https://github.com/liangyj/step-cli/releases) page and place
+the binary in a directory on your `PATH`.
+
+```bash
+# macOS / Linux example
+VERSION=$(curl -s https://api.github.com/repos/liangyj/step-cli/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+curl -LO "https://github.com/liangyj/step-cli/releases/download/${VERSION}/step-${ARCH}-apple-${OS}.tar.gz"
+# Adjust the archive name to match your platform, then extract and install
+tar xzf "step-${ARCH}-apple-${OS}.tar.gz"
+chmod +x step
+mv step /usr/local/bin/step
+```
+
+### cargo install
+
+If you already have the Rust toolchain installed:
+
+```bash
+cargo install --path .
+# Or install directly from crates.io once published:
+# cargo install step-cli
+```
+
+### Build from source
+
 ```bash
 git clone https://github.com/liangyj/step-cli.git
 cd step-cli
