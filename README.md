@@ -32,13 +32,33 @@ cargo build --release
 
 ## Configuration
 
-Set your StepFun API key:
+### 首次使用引导
+
+第一次运行 `step` 且没有配置时，会自动进入交互式配置向导：
+
+```bash
+step
+# 1. 选择 Step API（按量） 或 Step Plan（套餐）
+# 2. 输入 API Key
+# 3. 选择模型 ID
+# 4. 完成，开始对话
+```
+
+也可以随时手动运行：
+
+```bash
+step setup
+# 或
+step --setup
+```
+
+### 环境变量 / 配置文件
 
 ```bash
 export STEPFUN_API_KEY="sk-..."
 ```
 
-Or create `~/.step/config.toml` from `config.example.toml`.
+或复制 `config.example.toml` 到 `~/.step/config.toml` 手动编辑。
 
 Useful environment variables:
 

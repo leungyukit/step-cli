@@ -2,6 +2,7 @@ pub mod chat;
 pub mod cli;
 pub mod config;
 pub mod runtime;
+pub mod setup;
 pub mod skills;
 pub mod tools;
 pub mod ui;
@@ -58,6 +59,12 @@ async fn main() -> Result<()> {
 
     if let Some(Commands::Doctor) = cli.command {
         return run_doctor(&config).await;
+    }
+    if matches!(cli.command, Some(Commands::Setup)) || cli.setup {
+        config = setup::run_setup().await?;
+    } else if !Config::config_file_exists() && config.api_key.is_empty() {
+        println!("No configuration found. Running first-time setup...\n");
+        config = setup::run_setup().await?;
     }
 
     if config.api_key.is_empty() {

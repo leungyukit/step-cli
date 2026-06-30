@@ -38,6 +38,10 @@ pub struct Cli {
     #[arg(long = "no-tui")]
     pub no_tui: bool,
 
+    /// Run interactive setup wizard.
+    #[arg(long = "setup")]
+    pub setup: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -46,4 +50,6 @@ pub struct Cli {
 pub enum Commands {
     /// Check configuration and API connectivity.
     Doctor,
+    /// Run interactive setup wizard.
+    Setup,
 }

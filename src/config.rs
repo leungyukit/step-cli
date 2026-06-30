@@ -163,4 +163,23 @@ impl Config {
         std::fs::create_dir_all(&dir)?;
         Ok(dir)
     }
+
+    pub fn save(&self) -> Result<()> {
+        let path = config_path()?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let text = toml::to_string_pretty(self)?;
+        std::fs::write(&path, text)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(())
+    }
+
+    pub fn config_file_exists() -> bool {
+        config_path().map(|p| p.exists()).unwrap_or(false)
+    }
 }
