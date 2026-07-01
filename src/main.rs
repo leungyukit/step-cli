@@ -209,7 +209,7 @@ async fn handle_slash(cmd: &str, session: &mut Session, config: &Config) -> Resu
     match parts.first().copied() {
         Some("help") => {
             println!(
-                "Commands: /help, /exit, /clear, /save, /sessions, /jobs, /checkpoint, /restore, /logout"
+                "Commands: /help, /exit, /clear, /save, /sessions, /jobs, /checkpoint, /restore, /login, /logout"
             );
         }
         Some("exit" | "quit") => return Ok(ReplAction::Exit),
@@ -235,6 +235,16 @@ async fn handle_slash(cmd: &str, session: &mut Session, config: &Config) -> Resu
         Some("yolo") => {
             println!("Use --yolo at startup to enable auto-approval.");
         }
+        Some("login") => match PlatformAuth::login_interactive().await {
+            Ok(auth) => {
+                let user = auth
+                    .username
+                    .map(|u| format!(" ({})", u))
+                    .unwrap_or_default();
+                println!("已登录 StepFun 开放平台{}。", user);
+            }
+            Err(e) => eprintln!("登录失败: {}", e),
+        },
         Some("logout") => match PlatformAuth::logout() {
             Ok(()) => println!("已退出 StepFun 开放平台登录。"),
             Err(e) => eprintln!("退出登录失败: {}", e),

@@ -156,6 +156,7 @@ step doctor
 - `/skill <name>` — view skill content
 - `/yolo` — toggle auto-approval
 - `/trust` — toggle workspace trust
+- `/login` — log in to the StepFun open platform
 - `/logout` — log out from the StepFun open platform
 
 ## Safety
