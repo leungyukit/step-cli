@@ -20,6 +20,7 @@ A Rust CLI coding agent for StepFun models.
 
 ## Modules
 
+- `src/auth.rs` — StepFun open platform login state management.
 - `src/chat/` — LLM client, SSE streaming, messages, tools registry, executor, approval.
 - `src/tools/` — built-in tools (fs, shell) and MCP client.
 - `src/ui/` — ratatui TUI and REPL dispatcher.
@@ -45,6 +46,8 @@ See `README.md` for user-facing documentation.
 - Tools are async and registered in `src/chat/tools.rs`.
 - Workspace boundaries are enforced by file tools unless `--trust` or `--yolo` is set.
 - The TUI (`step`) is the default when stdout is a terminal; use `--no-tui` for the line REPL.
+- Users must log in to the StepFun open platform before using the chat features (`step login`).
+- API keys are no longer required to start with `sk-`; any non-empty key is accepted.
 
 ## Releasing
 

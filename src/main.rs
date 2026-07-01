@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod chat;
 pub mod cli;
 pub mod config;
@@ -8,6 +9,7 @@ pub mod tools;
 pub mod ui;
 
 use anyhow::{bail, Context, Result};
+use auth::PlatformAuth;
 use chat::approver::{AutoApprover, ConsoleApprover};
 use chat::client::{ChatClient, StreamEvent};
 use chat::executor::Executor;
@@ -60,6 +62,22 @@ async fn main() -> Result<()> {
     if let Some(Commands::Doctor) = cli.command {
         return run_doctor(&config).await;
     }
+    if matches!(cli.command, Some(Commands::Login)) {
+        PlatformAuth::login_interactive().await?;
+        return Ok(());
+    }
+    if matches!(cli.command, Some(Commands::Logout)) {
+        PlatformAuth::logout()?;
+        println!("已退出 StepFun 开放平台登录。");
+        return Ok(());
+    }
+
+    // StepFun platform login check.
+    if !PlatformAuth::load()?.is_authenticated() {
+        println!("未检测到 StepFun 开放平台登录状态，请先登录。\n");
+        let _auth = PlatformAuth::login_interactive().await?;
+    }
+
     if matches!(cli.command, Some(Commands::Setup)) || cli.setup {
         config = setup::run_setup().await?;
     } else if !Config::config_file_exists() && config.api_key.is_empty() {
@@ -281,6 +299,9 @@ async fn run_agent_turn(
 
 async fn run_doctor(config: &Config) -> Result<()> {
     println!("Configuration:");
+    if let Some(path) = Config::path_display() {
+        println!("  config_file: {}", path);
+    }
     println!("  base_url: {}", config.base_url);
     println!("  model: {}", config.model);
     println!(
@@ -293,6 +314,15 @@ async fn run_doctor(config: &Config) -> Result<()> {
     );
     println!("  workspace: {:?}", config.workspace);
     println!("  yolo: {}", config.yolo);
+
+    let auth = PlatformAuth::load()?;
+    println!(
+        "  platform_login: {}",
+        if auth.is_authenticated() { "yes" } else { "no" }
+    );
+    if let Some(user) = auth.username {
+        println!("  platform_user: {}", user);
+    }
 
     if config.api_key.is_empty() {
         return Ok(());

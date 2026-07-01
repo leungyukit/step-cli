@@ -8,7 +8,7 @@ use crate::runtime::checkpoints::CheckpointManager;
 use crate::runtime::jobs::{JobManager, JobStatus};
 use crate::skills::loader::SkillRegistry;
 use anyhow::Result;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -387,6 +387,10 @@ impl TuiApp {
     }
 
     async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
+        // On Windows crossterm may emit repeat/release events; only handle presses.
+        if key.kind != KeyEventKind::Press {
+            return Ok(());
+        }
         if self.popup.visible {
             if let Some(id) = self.popup.respond_id.take() {
                 let approved = matches!(key.code, KeyCode::Char('y') | KeyCode::Char('Y'));

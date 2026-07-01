@@ -68,11 +68,11 @@ pub async fn run_setup() -> Result<Config> {
     };
 
     let api_key = loop {
-        let line = prompt_secret("请输入 API Key (以 sk- 开头，输入隐藏): ").await?;
-        if line.starts_with("sk-") {
+        let line = prompt_secret("请输入 API Key (输入隐藏): ").await?;
+        if !line.is_empty() {
             break line;
         }
-        println!("API Key 格式不正确，请重新输入。");
+        println!("API Key 不能为空，请重新输入。");
     };
 
     let model = if plan.models.is_empty() {
@@ -107,7 +107,9 @@ pub async fn run_setup() -> Result<Config> {
     };
     config.save().context("failed to save config")?;
 
-    println!("\n配置已保存到 ~/.step/config.toml");
+    let config_path =
+        crate::config::Config::path_display().unwrap_or_else(|| "~/.step/config.toml".to_string());
+    println!("\n配置已保存到 {}", config_path);
     println!("  base_url: {}", config.base_url);
     println!("  model: {}", config.model);
     Ok(config)

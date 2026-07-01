@@ -52,4 +52,8 @@ pub enum Commands {
     Doctor,
     /// Run interactive setup wizard.
     Setup,
+    /// Log in to the StepFun open platform.
+    Login,
+    /// Log out from the StepFun open platform.
+    Logout,
 }

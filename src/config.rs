@@ -182,4 +182,8 @@ impl Config {
     pub fn config_file_exists() -> bool {
         config_path().map(|p| p.exists()).unwrap_or(false)
     }
+
+    pub fn path_display() -> Option<String> {
+        config_path().ok().map(|p| p.to_string_lossy().to_string())
+    }
 }
