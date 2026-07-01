@@ -72,10 +72,10 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    // StepFun platform login check.
+    // StepFun platform login check (informational only).
     if !PlatformAuth::load()?.is_authenticated() {
-        println!("未检测到 StepFun 开放平台登录状态，请先登录。\n");
-        let _auth = PlatformAuth::login_interactive().await?;
+        println!("未检测到 StepFun 开放平台登录状态，部分功能可能受限。");
+        println!("如需登录请运行: step login\n");
     }
 
     if matches!(cli.command, Some(Commands::Setup)) || cli.setup {
@@ -209,7 +209,7 @@ async fn handle_slash(cmd: &str, session: &mut Session, config: &Config) -> Resu
     match parts.first().copied() {
         Some("help") => {
             println!(
-                "Commands: /help, /exit, /clear, /save, /sessions, /jobs, /checkpoint, /restore"
+                "Commands: /help, /exit, /clear, /save, /sessions, /jobs, /checkpoint, /restore, /logout"
             );
         }
         Some("exit" | "quit") => return Ok(ReplAction::Exit),
@@ -235,6 +235,10 @@ async fn handle_slash(cmd: &str, session: &mut Session, config: &Config) -> Resu
         Some("yolo") => {
             println!("Use --yolo at startup to enable auto-approval.");
         }
+        Some("logout") => match PlatformAuth::logout() {
+            Ok(()) => println!("已退出 StepFun 开放平台登录。"),
+            Err(e) => eprintln!("退出登录失败: {}", e),
+        },
         _ => println!("Unknown command. Use /help."),
     }
     Ok(ReplAction::Continue)

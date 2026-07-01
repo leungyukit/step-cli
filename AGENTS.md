@@ -46,7 +46,7 @@ See `README.md` for user-facing documentation.
 - Tools are async and registered in `src/chat/tools.rs`.
 - Workspace boundaries are enforced by file tools unless `--trust` or `--yolo` is set.
 - The TUI (`step`) is the default when stdout is a terminal; use `--no-tui` for the line REPL.
-- Users must log in to the StepFun open platform before using the chat features (`step login`).
+- StepFun open platform login is optional (`step login`).
 - Browser login uses `chromiumoxide` to launch Chrome/Chromium and automatically capture session cookies.
 - API keys are no longer required to start with `sk-`; any non-empty key is accepted.
 

@@ -466,7 +466,7 @@ impl TuiApp {
             Some("exit" | "quit") => self.running = false,
             Some("help") => {
                 self.messages.push(DisplayMessage::Info(
-                    "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /yolo".to_string(),
+                    "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /yolo, /trust, /logout".to_string(),
                 ));
             }
             Some("clear") => {
@@ -577,6 +577,14 @@ impl TuiApp {
                     self.ctx.trust
                 )));
             }
+            Some("logout") => match crate::auth::PlatformAuth::logout() {
+                Ok(()) => self.messages.push(DisplayMessage::Info(
+                    "已退出 StepFun 开放平台登录。".to_string(),
+                )),
+                Err(e) => self
+                    .messages
+                    .push(DisplayMessage::Error(format!("退出登录失败: {}", e))),
+            },
             Some(":" | "cmd") => {
                 self.input_mode = InputMode::Command;
             }

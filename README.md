@@ -64,29 +64,26 @@ cargo build --release
 
 ### 首次使用引导
 
-第一次运行 `step` 时，需要先登录 StepFun 开放平台，然后进入 API 配置向导：
+第一次运行 `step` 时，会进入 API 配置向导（登录 StepFun 开放平台是可选的）：
 
 ```bash
 step
-# 1. 登录 StepFun 开放平台（自动浏览器登录、用户名/密码或手动粘贴 cookie）
-# 2. 选择 Step API（按量） 或 Step Plan（套餐）
-# 3. 输入 API Key（支持任意格式，不再限制 sk- 开头）
-# 4. 选择模型 ID
-# 5. 完成，开始对话
+# 1. 选择 Step API（按量） 或 Step Plan（套餐）
+# 2. 输入 API Key（支持任意格式，不再限制 sk- 开头）
+# 3. 选择模型 ID
+# 4. 完成，开始对话
 ```
 
 也可以随时手动运行：
 
 ```bash
-# 登录 StepFun 开放平台
-step login
-
 # 配置 API
 step setup
 # 或
 step --setup
 
-# 退出登录
+# 登录 / 退出 StepFun 开放平台
+step login
 step logout
 ```
 
@@ -159,6 +156,7 @@ step doctor
 - `/skill <name>` — view skill content
 - `/yolo` — toggle auto-approval
 - `/trust` — toggle workspace trust
+- `/logout` — log out from the StepFun open platform
 
 ## Safety
 
@@ -174,14 +172,20 @@ cargo test
 cargo clippy -- -D warnings
 ```
 
-## Platform Login
+## Platform Login (Optional)
 
-step-cli 要求先登录 [StepFun 开放平台](https://platform.stepfun.com)。登录信息保存在 `~/.step/state/auth.json`，可使用以下命令管理：
+step-cli 支持登录 [StepFun 开放平台](https://platform.stepfun.com)，但**不再强制要求**。未登录只会显示提示，不会阻止你配置模型和使用 API。
+
+登录信息保存在 `~/.step/state/auth.json`。
+
+### 登录 / 退出
 
 ```bash
-step login   # 登录
+step login   # 登录 StepFun 开放平台
 step logout  # 退出登录
 ```
+
+在 TUI / REPL 中也可以随时输入 `/logout` 退出登录。
 
 ### 浏览器自动登录
 
