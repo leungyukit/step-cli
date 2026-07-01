@@ -68,7 +68,7 @@ cargo build --release
 
 ```bash
 step
-# 1. 登录 StepFun 开放平台（浏览器登录或用户名/密码）
+# 1. 登录 StepFun 开放平台（自动浏览器登录、用户名/密码或手动粘贴 cookie）
 # 2. 选择 Step API（按量） 或 Step Plan（套餐）
 # 3. 输入 API Key（支持任意格式，不再限制 sk- 开头）
 # 4. 选择模型 ID
@@ -182,6 +182,12 @@ step-cli 要求先登录 [StepFun 开放平台](https://platform.stepfun.com)。
 step login   # 登录
 step logout  # 退出登录
 ```
+
+### 浏览器自动登录
+
+选择浏览器登录时，step-cli 会启动系统上的 Chrome/Chromium，打开 StepFun 开放平台登录页。你在浏览器窗口完成登录后，程序会自动读取 session cookie 并保存，无需手动复制粘贴。
+
+如果系统未安装 Chrome/Chromium，或自动获取失败，会自动回退到手动粘贴 cookie/token 的方式。
 
 ## License
 

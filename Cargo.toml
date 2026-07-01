@@ -1,6 +1,6 @@
 [package]
 name = "step-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "A Rust CLI coding agent powered by StepFun models"
 license = "MIT"
@@ -19,6 +19,7 @@ async-trait = "0.1"
 bytes = "1.11"
 chrono = { version = "0.4", features = ["serde"] }
 open = "5"
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
 clap = { version = "4.5", features = ["derive"] }
 clap_complete = "4.5"
 crossterm = { version = "0.28", features = ["event-stream"] }

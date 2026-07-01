@@ -107,6 +107,21 @@ impl PlatformAuth {
     }
 
     async fn browser_login() -> Result<Self> {
+        println!("\n正在启动浏览器，请在打开的窗口中完成登录...");
+        match browser_login_auto().await {
+            Ok(auth) => {
+                auth.save()?;
+                println!("\n登录信息已自动获取并保存。");
+                Ok(auth)
+            }
+            Err(e) => {
+                eprintln!("\n自动获取登录信息失败: {}", e);
+                Self::browser_login_manual().await
+            }
+        }
+    }
+
+    async fn browser_login_manual() -> Result<Self> {
         println!("\n请在浏览器中完成登录，然后返回这里。");
         let _ = open::that(PLATFORM_URL);
 
@@ -237,4 +252,94 @@ fn prompt_secret(message: &str) -> Result<String> {
         buf
     };
     Ok(line.trim().to_string())
+}
+
+async fn browser_login_auto() -> Result<PlatformAuth> {
+    use chromiumoxide::browser::{Browser, BrowserConfig};
+    use futures_util::StreamExt;
+    use std::time::Duration;
+
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .with_head()
+            .window_size(1280, 900)
+            .build()
+            .map_err(|e| anyhow::anyhow!("failed to build browser config: {e}"))?,
+    )
+    .await
+    .context("failed to launch Chrome/Chromium")?;
+
+    // Drive the browser event loop in the background.
+    tokio::spawn(async move { while let Some(_event) = handler.next().await {} });
+
+    let page = browser
+        .new_page(PLATFORM_URL)
+        .await
+        .context("failed to open platform page")?;
+
+    println!("浏览器已打开，请在窗口中登录 StepFun 开放平台。");
+    println!("登录成功后程序会自动读取 session cookie（120 秒超时）。");
+
+    let start = tokio::time::Instant::now();
+    let timeout = Duration::from_secs(120);
+    let mut last_cookie_count = 0;
+
+    while start.elapsed() < timeout {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let current_url = page.url().await.unwrap_or_default().unwrap_or_default();
+        let on_dashboard = !current_url.is_empty()
+            && (current_url.contains("/console")
+                || current_url.contains("/dashboard")
+                || current_url.contains("/workspace")
+                || current_url.contains("/projects")
+                || !current_url.contains("/login"));
+
+        let cookies = page
+            .get_cookies()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| !c.value.is_empty())
+            .collect::<Vec<_>>();
+
+        if cookies.is_empty() {
+            continue;
+        }
+
+        // Detect login by navigating away from the login page or by session-like cookies.
+        let has_session = cookies.iter().any(|c| {
+            let name = c.name.to_lowercase();
+            name.contains("session")
+                || name.contains("token")
+                || name.contains("auth")
+                || name.contains("step")
+        });
+
+        if on_dashboard || has_session || cookies.len() > last_cookie_count {
+            last_cookie_count = cookies.len();
+            // Wait a bit more for cookies to settle after redirect.
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let cookies = page.get_cookies().await.unwrap_or_default();
+            let cookie_str = cookies
+                .into_iter()
+                .filter(|c| !c.value.is_empty())
+                .map(|c| format!("{}={}", c.name, c.value))
+                .collect::<Vec<_>>()
+                .join("; ");
+
+            if !cookie_str.is_empty() {
+                let _ = browser.close().await;
+                return Ok(PlatformAuth {
+                    username: None,
+                    session_cookie: Some(cookie_str),
+                    token: None,
+                    expires_at: Some(Utc::now() + chrono::Duration::days(7)),
+                });
+            }
+        }
+    }
+
+    let _ = browser.close().await;
+    anyhow::bail!("等待登录超时")
 }
