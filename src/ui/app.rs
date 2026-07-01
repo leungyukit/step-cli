@@ -261,7 +261,7 @@ impl TuiApp {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(3),
-                Constraint::Length(3),
+                Constraint::Length(6),
                 Constraint::Length(1),
             ])
             .split(area);
