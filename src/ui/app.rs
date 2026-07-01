@@ -73,12 +73,20 @@ struct TuiApp {
     checkpoint_manager: CheckpointManager,
     skill_registry: SkillRegistry,
     pending_tool_calls: Vec<ToolCall>,
+    pending_action: Option<CommandAction>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InputMode {
     Normal,
     Command,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandAction {
+    Continue,
+    Exit,
+    PauseForLogin,
 }
 
 #[derive(Debug, Default)]
@@ -166,10 +174,14 @@ impl TuiApp {
             checkpoint_manager: CheckpointManager::new(checkpoints_dir)?,
             skill_registry,
             pending_tool_calls: Vec::new(),
+            pending_action: None,
         })
     }
 
-    async fn run<B: ratatui::backend::Backend>(mut self, terminal: &mut Terminal<B>) -> Result<()> {
+    async fn run<B: ratatui::backend::Backend + std::io::Write>(
+        mut self,
+        terminal: &mut Terminal<B>,
+    ) -> Result<()> {
         let tx = self.tx.clone();
         tokio::spawn(async move {
             let mut stream = crossterm::event::EventStream::new();
@@ -195,6 +207,50 @@ impl TuiApp {
                     last_tick = tokio::time::Instant::now();
                 }
             }
+
+            if let Some(CommandAction::PauseForLogin) = self.pending_action.take() {
+                self.run_login_in_terminal(terminal).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn run_login_in_terminal<B: ratatui::backend::Backend + std::io::Write>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+    ) -> Result<()> {
+        // Suspend TUI so stdin/stdout work normally for the interactive login flow.
+        crossterm::terminal::disable_raw_mode()?;
+        crossterm::execute!(
+            terminal.backend_mut(),
+            crossterm::terminal::LeaveAlternateScreen,
+            crossterm::event::DisableMouseCapture
+        )?;
+
+        let result = crate::auth::PlatformAuth::login_interactive().await;
+
+        crossterm::execute!(
+            terminal.backend_mut(),
+            crossterm::terminal::EnterAlternateScreen,
+            crossterm::event::EnableMouseCapture
+        )?;
+        crossterm::terminal::enable_raw_mode()?;
+        terminal.clear()?;
+
+        match result {
+            Ok(auth) => {
+                let user = auth
+                    .username
+                    .map(|u| format!(" ({})", u))
+                    .unwrap_or_default();
+                self.messages.push(DisplayMessage::Info(format!(
+                    "已登录 StepFun 开放平台{}。",
+                    user
+                )));
+            }
+            Err(e) => self
+                .messages
+                .push(DisplayMessage::Error(format!("登录失败: {}", e))),
         }
         Ok(())
     }
@@ -334,7 +390,14 @@ impl TuiApp {
     async fn handle_event(&mut self, event: AppEvent) -> Result<()> {
         match event {
             AppEvent::Terminal(Event::Resize(_w, _h)) => {}
-            AppEvent::Terminal(Event::Key(key)) => self.handle_key(key).await?,
+            AppEvent::Terminal(Event::Key(key)) => {
+                let action = self.handle_key(key).await?;
+                match action {
+                    CommandAction::Exit => self.running = false,
+                    CommandAction::PauseForLogin => self.pending_action = Some(action),
+                    CommandAction::Continue => {}
+                }
+            }
             AppEvent::AssistantStart => {
                 self.messages.push(DisplayMessage::Assistant(String::new()));
                 self.status = "Assistant is thinking...".to_string();
@@ -386,10 +449,10 @@ impl TuiApp {
         Ok(())
     }
 
-    async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
+    async fn handle_key(&mut self, key: KeyEvent) -> Result<CommandAction> {
         // On Windows crossterm may emit repeat/release events; only handle presses.
         if key.kind != KeyEventKind::Press {
-            return Ok(());
+            return Ok(CommandAction::Continue);
         }
         if self.popup.visible {
             if let Some(id) = self.popup.respond_id.take() {
@@ -398,22 +461,23 @@ impl TuiApp {
                     let _ = responder.send(approved);
                 }
                 self.popup.visible = false;
-                return Ok(());
+                return Ok(CommandAction::Continue);
             }
         }
         match self.input_mode {
             InputMode::Normal => match key.code {
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     self.running = false;
+                    return Ok(CommandAction::Exit);
                 }
                 KeyCode::Enter => {
                     let text = self.input.trim().to_string();
                     self.input.clear();
                     if text.is_empty() {
-                        return Ok(());
+                        return Ok(CommandAction::Continue);
                     }
                     if let Some(cmd) = text.strip_prefix('/') {
-                        self.handle_command(cmd).await?;
+                        return self.handle_command(cmd).await;
                     } else {
                         self.submit_user(text).await?;
                     }
@@ -436,7 +500,7 @@ impl TuiApp {
                     self.input_mode = InputMode::Normal;
                     if !text.is_empty() {
                         let cmd = text.strip_prefix('/').unwrap_or(&text);
-                        self.handle_command(cmd).await?;
+                        return self.handle_command(cmd).await;
                     }
                 }
                 KeyCode::Esc => {
@@ -450,7 +514,7 @@ impl TuiApp {
                 _ => {}
             },
         }
-        Ok(())
+        Ok(CommandAction::Continue)
     }
 
     async fn submit_user(&mut self, text: String) -> Result<()> {
@@ -460,10 +524,13 @@ impl TuiApp {
         Ok(())
     }
 
-    async fn handle_command(&mut self, cmd: &str) -> Result<()> {
+    async fn handle_command(&mut self, cmd: &str) -> Result<CommandAction> {
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         match parts.first().copied() {
-            Some("exit" | "quit") => self.running = false,
+            Some("exit" | "quit") => {
+                self.running = false;
+                return Ok(CommandAction::Exit);
+            }
             Some("help") => {
                 self.messages.push(DisplayMessage::Info(
                     "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /yolo, /trust, /login, /logout".to_string(),
@@ -577,21 +644,7 @@ impl TuiApp {
                     self.ctx.trust
                 )));
             }
-            Some("login") => match crate::auth::PlatformAuth::login_interactive().await {
-                Ok(auth) => {
-                    let user = auth
-                        .username
-                        .map(|u| format!(" ({})", u))
-                        .unwrap_or_default();
-                    self.messages.push(DisplayMessage::Info(format!(
-                        "已登录 StepFun 开放平台{}。",
-                        user
-                    )));
-                }
-                Err(e) => self
-                    .messages
-                    .push(DisplayMessage::Error(format!("登录失败: {}", e))),
-            },
+            Some("login") => return Ok(CommandAction::PauseForLogin),
             Some("logout") => match crate::auth::PlatformAuth::logout() {
                 Ok(()) => self.messages.push(DisplayMessage::Info(
                     "已退出 StepFun 开放平台登录。".to_string(),
@@ -608,7 +661,7 @@ impl TuiApp {
                     .push(DisplayMessage::Error(format!("Unknown command: /{}", cmd)));
             }
         }
-        Ok(())
+        Ok(CommandAction::Continue)
     }
 
     async fn process_tool_calls(&mut self, calls: Vec<ToolCall>) -> Result<()> {
