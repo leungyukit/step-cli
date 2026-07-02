@@ -428,10 +428,14 @@ impl TuiApp {
                 respond,
             } => {
                 self.approval_responders.insert(id.clone(), respond);
+                let body = format!(
+                    "{}\n\n────────────────────────\n按 Y 授权执行，按 N 拒绝。",
+                    args
+                );
                 self.popup = Popup {
                     visible: true,
                     title: format!("Approve {}?", name),
-                    body: args,
+                    body,
                     respond_id: Some(id),
                 };
             }
