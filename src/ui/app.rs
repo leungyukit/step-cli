@@ -311,12 +311,14 @@ impl TuiApp {
         if self.popup.visible {
             let popup_area = self.centered_rect(60, 40, area);
             frame.render_widget(Clear, popup_area);
+            let popup_style = Style::default().bg(Color::DarkGray).fg(Color::White);
             let popup_block = Block::default()
                 .title(self.popup.title.clone())
                 .borders(Borders::ALL)
-                .style(Style::default().bg(Color::Black));
+                .style(popup_style);
             let para = Paragraph::new(self.popup.body.clone())
                 .block(popup_block)
+                .style(popup_style)
                 .wrap(Wrap { trim: false });
             frame.render_widget(para, popup_area);
         }
