@@ -37,6 +37,23 @@ fn get_string(args: &Value, key: &str) -> Result<String, ToolError> {
         .ok_or_else(|| ToolError::new(format!("missing or invalid parameter: {}", key)))
 }
 
+/// Format a simple line-level diff between old and new text.
+/// Removed lines are prefixed with "- ", added lines with "+ ".
+fn format_diff(old: &str, new: &str) -> String {
+    use similar::{ChangeTag, TextDiff};
+    let diff = TextDiff::from_lines(old, new);
+    let mut lines = Vec::new();
+    for change in diff.iter_all_changes() {
+        let sign = match change.tag() {
+            ChangeTag::Delete => "- ",
+            ChangeTag::Insert => "+ ",
+            ChangeTag::Equal => "  ",
+        };
+        lines.push(format!("{}{}", sign, change.value().trim_end_matches('\n')));
+    }
+    lines.join("\n")
+}
+
 fn get_usize(args: &Value, key: &str) -> Option<usize> {
     args.get(key).and_then(|v| v.as_u64()).map(|n| n as usize)
 }
@@ -194,7 +211,9 @@ impl Tool for EditFileTool {
         result.push_str(&text[pos + old.len()..]);
         std::fs::write(&path, result)
             .map_err(|e| ToolError::new(format!("failed to write {:?}: {}", path, e)))?;
-        Ok(format!("Edited {:?}", path))
+
+        let diff = format_diff(&old, &new);
+        Ok(format!("Edited {:?}\n{}", path, diff))
     }
 }
 

@@ -357,13 +357,21 @@ impl TuiApp {
                 lines
             }
             DisplayMessage::Tool { name, result } => {
-                vec![
-                    Line::from(Span::styled(
-                        format!("  → tool {}: ", name),
-                        Style::default().fg(Color::Yellow),
-                    )),
-                    Line::from(Span::raw(result.lines().next().unwrap_or(""))),
-                ]
+                let mut lines = vec![Line::from(Span::styled(
+                    format!("  → tool {}: ", name),
+                    Style::default().fg(Color::Yellow),
+                ))];
+                for l in result.lines() {
+                    let span = if l.starts_with("- ") {
+                        Span::styled(l, Style::default().fg(Color::Red))
+                    } else if l.starts_with("+ ") {
+                        Span::styled(l, Style::default().fg(Color::Green))
+                    } else {
+                        Span::raw(l)
+                    };
+                    lines.push(Line::from(span));
+                }
+                lines
             }
             DisplayMessage::Info(text) => vec![Line::from(Span::styled(
                 text.clone(),
