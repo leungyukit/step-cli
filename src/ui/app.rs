@@ -167,7 +167,7 @@ impl TuiApp {
             input_mode: InputMode::Normal,
             scroll: 0,
             auto_scroll: true,
-            status: "Ctrl+C/exit quit | ↑↓ PgUp/PgDown scroll | /help".to_string(),
+            status: "Ctrl+C/exit quit | ↑↓ PgUp/PgDown/mouse scroll | /help".to_string(),
             popup: Popup::default(),
             running: true,
             tx,
@@ -406,6 +406,7 @@ impl TuiApp {
                     CommandAction::Continue => {}
                 }
             }
+            AppEvent::Terminal(Event::Mouse(mouse)) => self.handle_mouse(mouse),
             AppEvent::AssistantStart => {
                 self.messages.push(DisplayMessage::Assistant(String::new()));
                 self.status = "Assistant is thinking...".to_string();
@@ -461,6 +462,25 @@ impl TuiApp {
             _ => {}
         }
         Ok(())
+    }
+
+    fn handle_mouse(&mut self, mouse: crossterm::event::MouseEvent) {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        match mouse.kind {
+            MouseEventKind::ScrollDown => {
+                self.auto_scroll = false;
+                self.scroll = (self.scroll + 1).min(self.messages.len().saturating_sub(1));
+            }
+            MouseEventKind::ScrollUp => {
+                self.auto_scroll = false;
+                self.scroll = self.scroll.saturating_sub(1);
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                // Clicking in the chat area pauses auto-scroll.
+                self.auto_scroll = false;
+            }
+            _ => {}
+        }
     }
 
     async fn handle_key(&mut self, key: KeyEvent) -> Result<CommandAction> {
@@ -571,7 +591,7 @@ impl TuiApp {
             }
             Some("help") => {
                 self.messages.push(DisplayMessage::Info(
-                    "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /yolo, /trust, /login, /logout | Scroll: ↑/↓/PgUp/PgDown/Home/End".to_string(),
+                    "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /yolo, /trust, /login, /logout | Scroll: ↑/↓/PgUp/PgDown/Home/End or mouse wheel".to_string(),
                 ));
             }
             Some("clear") => {
