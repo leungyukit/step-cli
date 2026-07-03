@@ -19,6 +19,7 @@ use ratatui::{Frame, Terminal};
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
@@ -75,6 +76,7 @@ struct TuiApp {
     skill_registry: SkillRegistry,
     pending_tool_calls: Vec<ToolCall>,
     pending_action: Option<CommandAction>,
+    auto_approve_all: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +179,7 @@ impl TuiApp {
             skill_registry,
             pending_tool_calls: Vec::new(),
             pending_action: None,
+            auto_approve_all: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -448,7 +451,7 @@ impl TuiApp {
             } => {
                 self.approval_responders.insert(id.clone(), respond);
                 let body = format!(
-                    "{}\n\n────────────────────────\n按 Y 授权执行，按 N 拒绝。",
+                    "{}\n\n────────────────────────\nY 授权  |  N 拒绝  |  A 授权本次所有后续操作",
                     args
                 );
                 self.popup = Popup {
@@ -499,10 +502,19 @@ impl TuiApp {
         if self.popup.visible {
             if let Some(id) = self.popup.respond_id.take() {
                 let approved = matches!(key.code, KeyCode::Char('y') | KeyCode::Char('Y'));
+                let approve_all = matches!(key.code, KeyCode::Char('a') | KeyCode::Char('A'));
+                if approve_all {
+                    self.auto_approve_all.store(true, Ordering::Relaxed);
+                }
                 if let Some(responder) = self.approval_responders.remove(&id) {
-                    let _ = responder.send(approved);
+                    let _ = responder.send(approved || approve_all);
                 }
                 self.popup.visible = false;
+                if approve_all {
+                    self.messages.push(DisplayMessage::Info(
+                        "已开启自动授权：本次工具调用将自动通过。".to_string(),
+                    ));
+                }
                 return Ok(CommandAction::Continue);
             }
         }
@@ -738,8 +750,9 @@ impl TuiApp {
         let tx = self.tx.clone();
         let registry = self.registry.clone();
         let ctx = self.ctx.clone();
+        let auto_approve_all = self.auto_approve_all.clone();
         tokio::spawn(async move {
-            let approver = TuiApprover::new(tx.clone());
+            let approver = TuiApprover::new(tx.clone(), auto_approve_all);
             let executor = Executor::new(&registry, &ctx, &approver);
             match executor.execute(calls.clone()).await {
                 Ok(results) => {
@@ -815,17 +828,24 @@ impl TuiApp {
 
 struct TuiApprover {
     tx: mpsc::UnboundedSender<AppEvent>,
+    auto_approve_all: Arc<AtomicBool>,
 }
 
 impl TuiApprover {
-    fn new(tx: mpsc::UnboundedSender<AppEvent>) -> Self {
-        Self { tx }
+    fn new(tx: mpsc::UnboundedSender<AppEvent>, auto_approve_all: Arc<AtomicBool>) -> Self {
+        Self {
+            tx,
+            auto_approve_all,
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl Approver for TuiApprover {
     async fn approve(&self, call_id: &str, tool_name: &str, args: &str) -> bool {
+        if self.auto_approve_all.load(Ordering::Relaxed) {
+            return true;
+        }
         let (respond_tx, respond_rx) = oneshot::channel();
         let _ = self.tx.send(AppEvent::RequestApproval {
             id: call_id.to_string(),
