@@ -64,6 +64,7 @@ struct TuiApp {
     input: String,
     input_mode: InputMode,
     scroll: usize,
+    auto_scroll: bool,
     status: String,
     popup: Popup,
     running: bool,
@@ -165,7 +166,8 @@ impl TuiApp {
             input: String::new(),
             input_mode: InputMode::Normal,
             scroll: 0,
-            status: "Press Ctrl+C or type /exit to quit".to_string(),
+            auto_scroll: true,
+            status: "Ctrl+C/exit quit | ↑↓ PgUp/PgDown scroll | /help".to_string(),
             popup: Popup::default(),
             running: true,
             tx,
@@ -324,6 +326,10 @@ impl TuiApp {
         }
     }
 
+    fn scroll_to_bottom(&mut self) {
+        self.scroll = self.messages.len().saturating_sub(1);
+    }
+
     fn format_message<'a>(&self, msg: &'a DisplayMessage) -> Vec<Line<'a>> {
         match msg {
             DisplayMessage::User(text) => {
@@ -410,7 +416,9 @@ impl TuiApp {
                 } else {
                     self.messages.push(DisplayMessage::Assistant(delta));
                 }
-                self.scroll = self.messages.len().saturating_sub(1);
+                if self.auto_scroll {
+                    self.scroll_to_bottom();
+                }
             }
             AppEvent::AssistantDone => {
                 self.status = "Ready".to_string();
@@ -495,8 +503,30 @@ impl TuiApp {
                 KeyCode::Esc => {
                     self.input.clear();
                 }
-                KeyCode::PageUp => self.scroll = self.scroll.saturating_sub(5),
-                KeyCode::PageDown => self.scroll = self.scroll.saturating_add(5),
+                KeyCode::PageUp => {
+                    self.auto_scroll = false;
+                    self.scroll = self.scroll.saturating_sub(5);
+                }
+                KeyCode::PageDown => {
+                    self.auto_scroll = false;
+                    self.scroll = (self.scroll + 5).min(self.messages.len().saturating_sub(1));
+                }
+                KeyCode::Up => {
+                    self.auto_scroll = false;
+                    self.scroll = self.scroll.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.auto_scroll = false;
+                    self.scroll = (self.scroll + 1).min(self.messages.len().saturating_sub(1));
+                }
+                KeyCode::Home => {
+                    self.auto_scroll = false;
+                    self.scroll = 0;
+                }
+                KeyCode::End => {
+                    self.scroll_to_bottom();
+                    self.auto_scroll = true;
+                }
                 _ => {}
             },
             InputMode::Command => match key.code {
@@ -525,6 +555,8 @@ impl TuiApp {
 
     async fn submit_user(&mut self, text: String) -> Result<()> {
         self.messages.push(DisplayMessage::User(text.clone()));
+        self.scroll_to_bottom();
+        self.auto_scroll = true;
         self.session.push(Message::user(text));
         self.run_agent_turn().await?;
         Ok(())
@@ -539,7 +571,7 @@ impl TuiApp {
             }
             Some("help") => {
                 self.messages.push(DisplayMessage::Info(
-                    "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /yolo, /trust, /login, /logout".to_string(),
+                    "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /yolo, /trust, /login, /logout | Scroll: ↑/↓/PgUp/PgDown/Home/End".to_string(),
                 ));
             }
             Some("clear") => {
