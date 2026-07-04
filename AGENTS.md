@@ -49,6 +49,7 @@ See `README.md` for user-facing documentation.
 - StepFun open platform login is optional (`step login`).
 - Browser login uses `chromiumoxide` to launch Chrome/Chromium and automatically capture session cookies.
 - API keys are no longer required to start with `sk-`; any non-empty key is accepted.
+- Context compression: when `session.messages` tokens exceed `context_threshold * model_context_limit`, the oldest non-system messages are dropped and a system notice is inserted before the LLM call. System prompts are always preserved.
 
 ## Agent Query Strategy
 

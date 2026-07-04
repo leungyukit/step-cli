@@ -796,12 +796,24 @@ impl TuiApp {
     }
 
     async fn run_agent_turn(&mut self) -> Result<()> {
+        let model = self.client.model();
+        if crate::chat::context::compress_if_needed(
+            &mut self.session.messages,
+            model,
+            self.config.context_threshold,
+        ) {
+            self.status = format!(
+                "Context compressed (threshold: {:.0}%)",
+                self.config.context_threshold * 100.0
+            );
+        }
+
         let client = self.client.clone();
         let registry = self.registry.clone();
         let session = self.session.clone();
         let tx = self.tx.clone();
         let schemas = registry.schemas();
-        let model = client.model().to_string();
+        let model = model.to_string();
         let max_rounds = self.config.max_rounds;
 
         let _ = max_rounds;

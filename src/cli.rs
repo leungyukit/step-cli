@@ -34,6 +34,10 @@ pub struct Cli {
     #[arg(long = "max-rounds", default_value_t = 30)]
     pub max_rounds: usize,
 
+    /// Context compression threshold as a fraction of the model context window (0.1-1.0).
+    #[arg(long = "context-threshold")]
+    pub context_threshold: Option<f32>,
+
     /// Disable the TUI and use the line-based REPL.
     #[arg(long = "no-tui")]
     pub no_tui: bool,

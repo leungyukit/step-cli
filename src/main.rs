@@ -126,7 +126,7 @@ async fn main() -> Result<()> {
             &approver,
             &mut session,
             &prompt,
-            config.max_rounds,
+            &config,
         )
         .await?;
         return Ok(());
@@ -149,10 +149,10 @@ async fn run_headless(
     approver: &dyn chat::approver::Approver,
     session: &mut Session,
     prompt: &str,
-    max_rounds: usize,
+    config: &Config,
 ) -> Result<()> {
     session.push(Message::user(prompt));
-    run_agent_turn(client, registry, ctx, approver, session, max_rounds).await?;
+    run_agent_turn(client, registry, ctx, approver, session, config).await?;
     println!();
     if let Ok(dir) = Config::load().and_then(|c| c.sessions_dir()) {
         let _ = session.save(&dir);
@@ -188,8 +188,7 @@ async fn run_repl(
                     session.push(Message::user(line));
                     print!("Assistant: ");
                     let _ = std::io::stdout().flush();
-                    run_agent_turn(client, registry, ctx, approver, session, config.max_rounds)
-                        .await?;
+                    run_agent_turn(client, registry, ctx, approver, session, config).await?;
                     println!();
                 }
             }
@@ -260,14 +259,24 @@ async fn run_agent_turn(
     ctx: &ToolContext,
     approver: &dyn chat::approver::Approver,
     session: &mut Session,
-    max_rounds: usize,
+    config: &Config,
 ) -> Result<String> {
     let schemas = registry.schemas();
     let executor = Executor::new(registry, ctx, approver);
 
-    for _round in 0..max_rounds {
+    for _round in 0..config.max_rounds {
+        let model = client.model();
+        if chat::context::compress_if_needed(&mut session.messages, model, config.context_threshold)
+        {
+            tracing::info!(
+                "Context compressed to stay under {} threshold for {}",
+                config.context_threshold,
+                model
+            );
+        }
+
         let request = chat::client::ChatRequest::new(
-            client.model().to_string(),
+            model.to_string(),
             session.messages.clone(),
             schemas.clone(),
             None,

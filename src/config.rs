@@ -25,6 +25,8 @@ pub struct Config {
     pub temperature: Option<f32>,
     #[serde(default = "default_max_rounds")]
     pub max_rounds: usize,
+    #[serde(default = "default_context_threshold")]
+    pub context_threshold: f32,
 }
 
 impl Default for Config {
@@ -40,6 +42,7 @@ impl Default for Config {
             max_tokens: None,
             temperature: None,
             max_rounds: default_max_rounds(),
+            context_threshold: default_context_threshold(),
         }
     }
 }
@@ -54,6 +57,10 @@ fn default_model() -> String {
 
 fn default_max_rounds() -> usize {
     30
+}
+
+fn default_context_threshold() -> f32 {
+    0.8
 }
 
 fn config_path() -> Result<PathBuf> {
@@ -118,6 +125,12 @@ impl Config {
         if let Some(v) = env_usize("STEP_MAX_ROUNDS") {
             cfg.max_rounds = v;
         }
+        if let Some(v) = env::var("STEP_CONTEXT_THRESHOLD")
+            .ok()
+            .and_then(|s| s.parse::<f32>().ok())
+        {
+            cfg.context_threshold = v.clamp(0.1, 1.0);
+        }
 
         if cfg.workspace.is_none() {
             cfg.workspace = Some(env::current_dir()?);
@@ -147,6 +160,9 @@ impl Config {
         }
         if cli.max_rounds != 30 {
             self.max_rounds = cli.max_rounds;
+        }
+        if let Some(threshold) = cli.context_threshold {
+            self.context_threshold = threshold.clamp(0.1, 1.0);
         }
     }
 

@@ -103,6 +103,9 @@ Useful environment variables:
 - `STEP_WORKSPACE` — workspace directory.
 - `STEP_ALLOW_SHELL=1` — allow shell execution.
 - `STEP_YOLO=1` — auto-approve all tool calls.
+- `STEP_CONTEXT_THRESHOLD` — fraction of the model context window at which older messages are automatically dropped (default `0.8`, range `0.1-1.0`).
+
+When the accumulated context exceeds this threshold, step-cli removes the oldest non-system messages and inserts a short system notice. System prompts are always preserved.
 
 ### MCP configuration
 

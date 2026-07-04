@@ -318,6 +318,7 @@ mod tests {
             max_tokens: None,
             temperature: None,
             max_rounds: 10,
+            context_threshold: 0.8,
         }
     }
 
