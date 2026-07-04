@@ -50,6 +50,12 @@ See `README.md` for user-facing documentation.
 - Browser login uses `chromiumoxide` to launch Chrome/Chromium and automatically capture session cookies.
 - API keys are no longer required to start with `sk-`; any non-empty key is accepted.
 
+## Agent Query Strategy
+
+- When answering questions or investigating issues, prefer autonomous judgment to decide between local file search, web search, or a combination of both.
+- Only follow an explicit search source preference when the user clearly requests it (e.g., "search the web", "look at local files only", "do not use the internet").
+- For step-cli specific implementation details, local codebase queries usually take priority unless external/upstream information is clearly needed.
+
 ## Releasing
 
 1. Bump the version in `Cargo.toml` if needed.

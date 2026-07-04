@@ -77,6 +77,10 @@ struct TuiApp {
     pending_tool_calls: Vec<ToolCall>,
     pending_action: Option<CommandAction>,
     auto_approve_all: Arc<AtomicBool>,
+    last_input_tokens: usize,
+    last_output_tokens: usize,
+    total_input_tokens: usize,
+    total_output_tokens: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,6 +184,10 @@ impl TuiApp {
             pending_tool_calls: Vec::new(),
             pending_action: None,
             auto_approve_all: Arc::new(AtomicBool::new(false)),
+            last_input_tokens: 0,
+            last_output_tokens: 0,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
         })
     }
 
@@ -304,11 +312,20 @@ impl TuiApp {
         frame.render_widget(input_para, chunks[1]);
 
         // Status bar
+        let token_info = format!(
+            "in:{}+out:{} / total in:{}+out:{}",
+            self.last_input_tokens,
+            self.last_output_tokens,
+            self.total_input_tokens,
+            self.total_output_tokens
+        );
         let status = Paragraph::new(Line::from(vec![
             Span::styled("model: ", Style::default().fg(Color::DarkGray)),
             Span::raw(&self.config.model),
             Span::raw(" | "),
             Span::raw(&self.status),
+            Span::raw(" | "),
+            Span::styled(token_info, Style::default().fg(Color::DarkGray)),
         ]));
         frame.render_widget(status, chunks[2]);
 
@@ -436,6 +453,8 @@ impl TuiApp {
                 self.status = "Ready".to_string();
                 if let Some(DisplayMessage::Assistant(text)) = self.messages.last() {
                     let text = text.clone();
+                    self.last_output_tokens = crate::chat::tokens::count_tokens(&text);
+                    self.total_output_tokens += self.last_output_tokens;
                     self.session.push(Message::assistant(text));
                 }
             }
@@ -594,6 +613,9 @@ impl TuiApp {
     }
 
     async fn submit_user(&mut self, text: String) -> Result<()> {
+        let tokens = crate::chat::tokens::count_tokens(&text);
+        self.last_input_tokens = tokens;
+        self.total_input_tokens += tokens;
         self.messages.push(DisplayMessage::User(text.clone()));
         self.scroll_to_bottom();
         self.auto_scroll = true;
