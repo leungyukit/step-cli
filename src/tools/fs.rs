@@ -431,6 +431,8 @@ mod tests {
             yolo: false,
             allow_shell: false,
             job_manager: None,
+            search_provider: None,
+            search_api_key: None,
         }
     }
 

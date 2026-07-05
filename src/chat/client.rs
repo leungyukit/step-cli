@@ -158,7 +158,8 @@ impl ChatClient {
     pub async fn complete(&self, request: ChatRequest) -> Result<Message> {
         let mut request = request;
         request.stream = false;
-        let response = self.http.post(self.url()).json(&request).send().await?;
+        let body = serde_json::to_value(&request)?;
+        let response = self.http.post(self.url()).json(&body).send().await?;
         let status = response.status();
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
@@ -319,6 +320,9 @@ mod tests {
             temperature: None,
             max_rounds: 10,
             context_threshold: 0.8,
+            search_provider: None,
+            search_api_key: None,
+            asr_model: Some(crate::chat::asr::DEFAULT_ASR_MODEL.to_string()),
         }
     }
 
@@ -399,6 +403,6 @@ data: [DONE]
             None,
         );
         let msg = client.complete(request).await.unwrap();
-        assert_eq!(msg.content.as_deref(), Some("Hi there"));
+        assert_eq!(msg.content_text(), Some("Hi there"));
     }
 }

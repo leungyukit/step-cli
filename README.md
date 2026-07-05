@@ -19,6 +19,8 @@ skills, background jobs, and MCP.
 - **MCP**: load external tool servers via `~/.step/mcp.json` (stdio transport).
 - **Workspace boundary** and `--trust` / `--yolo` modes.
 - **Session persistence** under `~/.step/sessions/`.
+- **Vision model support**: attach images to user messages for models like `step-1o-turbo-vision`.
+- **ASR audio transcription**: transcribe audio files with StepFun `stepaudio-2.5-asr`.
 - **`doctor`** command for quick config/API diagnostics.
 
 ## Install
@@ -100,12 +102,54 @@ Useful environment variables:
 - `STEPFUN_API_KEY` — API key (overrides config file).
 - `STEP_BASE_URL` — default `https://api.stepfun.com/step_plan/v1`.
 - `STEP_MODEL` — default `step-2-16k`.
+
+Supported chat/vision models include:
+
+- `step-3.7-flash` (256K context)
+- `step-3.5-flash` (256K context)
+- `step-3.5-flash-2603` (256K context)
+- `step-1o-turbo-vision`
+- `step-audio-2.5-chat`
+- `step-2-16k`, `step-1-8k`, `step-1-32k`, `step-1-128k`
+
+Note: ASR/TTS/image models (e.g., `step-asr`, `step-tts-mini`, `step-1x-edit`) are not supported by the chat endpoint and require dedicated endpoints.
+
 - `STEP_WORKSPACE` — workspace directory.
 - `STEP_ALLOW_SHELL=1` — allow shell execution.
 - `STEP_YOLO=1` — auto-approve all tool calls.
 - `STEP_CONTEXT_THRESHOLD` — fraction of the model context window at which older messages are automatically dropped (default `0.8`, range `0.1-1.0`).
+- `STEP_SEARCH_PROVIDER` — web search provider, e.g. `serper`.
+- `STEP_SEARCH_API_KEY` — API key for the configured search provider.
+- `STEP_ASR_MODEL` — ASR model, default `stepaudio-2.5-asr`.
 
 When the accumulated context exceeds this threshold, step-cli removes the oldest non-system messages and inserts a short system notice. System prompts are always preserved.
+
+### Web search
+
+step-cli can expose a `web_search` tool to the model. To enable it, configure a search provider and API key:
+
+```toml
+search_provider = "serper"
+search_api_key = "your-serper-api-key"
+```
+
+Supported providers:
+
+- `serper` — https://serper.dev (Google search results, requires API key)
+- `tavily` — https://tavily.com (AI search, requires API key)
+- `duckduckgo` — https://duckduckgo.com (free HTML scraping, no API key, may be less stable)
+
+The model can then call `web_search` with a `query` when it needs up-to-date information from the web.
+
+### Intent routing
+
+step-cli instructs the model to autonomously choose the best strategy for each question:
+
+1. **Direct answer** — general knowledge, explanations, math, coding concepts, etc. No tools are used.
+2. **Local file lookup** — questions about the current workspace or project files. Uses `read_file`, `list_dir`, `glob_files`, `grep_files`.
+3. **Web search** — recent events, latest versions, external docs, public APIs. Uses `web_search`.
+
+The model may also **combine** strategies, e.g. search the web for the latest docs and then read local files to apply them to the project. When images are attached, the model actively analyzes them; when audio is provided, it can transcribe the audio first and then act on the transcript.
 
 ### MCP configuration
 
@@ -137,6 +181,15 @@ step --no-tui
 # Use a different model / base URL
 step -m step-3.7-flash --base-url https://api.stepfun.com/step_plan/v1
 
+# Vision: attach images to a prompt
+step -m step-1o-turbo-vision -p "Describe this screenshot" -i screenshot.png -i another.png
+
+# ASR: transcribe an audio file
+step transcribe meeting.mp3
+
+# ASR + chat: summarize a meeting recording
+step -p "Summarize this meeting" --audio meeting.mp3
+
 # YOLO mode (auto-approve all tools)
 step --yolo -p "Refactor src/main.rs"
 
@@ -157,6 +210,8 @@ step doctor
 - `/jobs cancel <id>` — cancel a job
 - `/skills` — list loaded skills
 - `/skill <name>` — view skill content
+- `/image <path>` — attach an image to the next user message
+- `/transcribe [--send] <path>` — transcribe audio; with `--send`, submit the transcript as a user message
 - `/yolo` — toggle auto-approval
 - `/trust` — toggle workspace trust
 - `/login` — log in to the StepFun open platform

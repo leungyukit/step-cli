@@ -30,6 +30,18 @@ pub struct Cli {
     #[arg(short = 'm', long = "model")]
     pub model: Option<String>,
 
+    /// Attach an image to the user message (headless mode). May be repeated.
+    #[arg(short = 'i', long = "image")]
+    pub image: Vec<PathBuf>,
+
+    /// Attach an audio file to be transcribed before sending the prompt (headless mode).
+    #[arg(short = 'a', long = "audio")]
+    pub audio: Option<PathBuf>,
+
+    /// ASR model override.
+    #[arg(long = "asr-model")]
+    pub asr_model: Option<String>,
+
     /// Maximum number of agent rounds.
     #[arg(long = "max-rounds", default_value_t = 30)]
     pub max_rounds: usize,
@@ -37,6 +49,14 @@ pub struct Cli {
     /// Context compression threshold as a fraction of the model context window (0.1-1.0).
     #[arg(long = "context-threshold")]
     pub context_threshold: Option<f32>,
+
+    /// Web search provider (e.g., serper, tavily).
+    #[arg(long = "search-provider")]
+    pub search_provider: Option<String>,
+
+    /// API key for the configured web search provider.
+    #[arg(long = "search-api-key")]
+    pub search_api_key: Option<String>,
 
     /// Disable the TUI and use the line-based REPL.
     #[arg(long = "no-tui")]
@@ -60,4 +80,12 @@ pub enum Commands {
     Login,
     /// Log out from the StepFun open platform.
     Logout,
+    /// Transcribe an audio file using StepFun ASR.
+    Transcribe {
+        /// Path to the audio file.
+        audio: PathBuf,
+        /// ASR model override.
+        #[arg(long = "asr-model")]
+        asr_model: Option<String>,
+    },
 }

@@ -1,8 +1,10 @@
 use crate::chat::approver::Approver;
+use crate::chat::asr::{self, AsrClient};
 use crate::chat::client::{ChatClient, StreamEvent};
 use crate::chat::executor::Executor;
 use crate::chat::session::{Message, Role, Session, ToolCall};
 use crate::chat::tools::{ToolContext, ToolRegistry};
+use crate::chat::vision;
 use crate::config::Config;
 use crate::runtime::checkpoints::CheckpointManager;
 use crate::runtime::jobs::{JobManager, JobStatus};
@@ -77,6 +79,7 @@ struct TuiApp {
     pending_tool_calls: Vec<ToolCall>,
     pending_action: Option<CommandAction>,
     auto_approve_all: Arc<AtomicBool>,
+    pending_images: Vec<PathBuf>,
     last_input_tokens: usize,
     last_output_tokens: usize,
     total_input_tokens: usize,
@@ -154,11 +157,12 @@ impl TuiApp {
         let mut ctx = ctx;
         ctx.job_manager = Some(Arc::new(tokio::sync::Mutex::new(job_manager)));
         let mut session = session;
-        if let Some(extra) = skill_registry.system_prompt_extras().into() {
-            // Prepend skill info to the system prompt if present.
+        let extra = skill_registry.system_prompt_extras();
+        if !extra.is_empty() {
+            // Append skill info to the system prompt if present.
             if let Some(sys) = session.messages.iter_mut().find(|m| m.role == Role::System) {
                 if let Some(content) = &mut sys.content {
-                    content.push_str(&extra);
+                    content.push_text(&extra);
                 }
             }
         }
@@ -184,6 +188,7 @@ impl TuiApp {
             pending_tool_calls: Vec::new(),
             pending_action: None,
             auto_approve_all: Arc::new(AtomicBool::new(false)),
+            pending_images: Vec::new(),
             last_input_tokens: 0,
             last_output_tokens: 0,
             total_input_tokens: 0,
@@ -481,7 +486,7 @@ impl TuiApp {
                 };
             }
             AppEvent::ToolResult { id, name, result } => {
-                self.session.push(Message::tool(id, &result));
+                self.session.push(Message::tool(id, result.as_str()));
                 self.messages.push(DisplayMessage::Tool { name, result });
                 self.popup.visible = false;
             }
@@ -613,13 +618,40 @@ impl TuiApp {
     }
 
     async fn submit_user(&mut self, text: String) -> Result<()> {
-        let tokens = crate::chat::tokens::count_tokens(&text);
+        let (mut cleaned_text, md_images) = vision::extract_image_paths(&text);
+        let mut image_paths = std::mem::take(&mut self.pending_images);
+        for raw in md_images {
+            match vision::resolve_image_path(&raw, &self.ctx.workspace, self.ctx.trust) {
+                Ok(path) => image_paths.push(path),
+                Err(e) => self.messages.push(DisplayMessage::Error(format!(
+                    "Failed to attach image {}: {}",
+                    raw, e
+                ))),
+            }
+        }
+
+        if !image_paths.is_empty() && !vision::is_vision_model(self.client.model()) {
+            self.messages.push(DisplayMessage::Info(format!(
+                "Warning: model {} may not support images. Consider using a vision model.",
+                self.client.model()
+            )));
+        }
+
+        cleaned_text = cleaned_text.trim().to_string();
+        let content = vision::build_user_content(&cleaned_text, &image_paths)?;
+        let display_text = if image_paths.is_empty() {
+            cleaned_text.clone()
+        } else {
+            format!("{} (+{} images)", cleaned_text, image_paths.len())
+        };
+
+        let tokens = crate::chat::tokens::count_tokens(content.as_text().unwrap_or(""));
         self.last_input_tokens = tokens;
         self.total_input_tokens += tokens;
-        self.messages.push(DisplayMessage::User(text.clone()));
+        self.messages.push(DisplayMessage::User(display_text));
         self.scroll_to_bottom();
         self.auto_scroll = true;
-        self.session.push(Message::user(text));
+        self.session.push(Message::user(content));
         self.run_agent_turn().await?;
         Ok(())
     }
@@ -633,12 +665,80 @@ impl TuiApp {
             }
             Some("help") => {
                 self.messages.push(DisplayMessage::Info(
-                    "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /yolo, /trust, /login, /logout | Scroll: ↑/↓/PgUp/PgDown/Home/End or mouse wheel".to_string(),
+                    "Commands: /exit, /clear, /save, /sessions, /jobs, /checkpoint [name], /restore <id>, /skills, /skill <name>, /image <path>, /transcribe [--send] <path>, /yolo, /trust, /login, /logout | Scroll: ↑/↓/PgUp/PgDown/Home/End or mouse wheel".to_string(),
                 ));
             }
             Some("clear") => {
                 self.session.messages.retain(|m| m.role == Role::System);
                 self.messages.clear();
+                self.pending_images.clear();
+            }
+            Some("image") => {
+                if parts.len() < 2 {
+                    self.messages
+                        .push(DisplayMessage::Error("Usage: /image <path>".to_string()));
+                } else {
+                    let raw = parts[1];
+                    match vision::resolve_image_path(raw, &self.ctx.workspace, self.ctx.trust) {
+                        Ok(path) => {
+                            self.pending_images.push(path.clone());
+                            self.messages.push(DisplayMessage::Info(format!(
+                                "Attached image: {}",
+                                path.display()
+                            )));
+                        }
+                        Err(e) => self.messages.push(DisplayMessage::Error(format!(
+                            "Failed to attach image: {}",
+                            e
+                        ))),
+                    }
+                }
+            }
+            Some("transcribe") => {
+                let send = parts.get(1).copied() == Some("--send");
+                let path_idx = if send { 2 } else { 1 };
+                if parts.len() <= path_idx {
+                    self.messages.push(DisplayMessage::Error(
+                        "Usage: /transcribe [--send] <path>".to_string(),
+                    ));
+                } else {
+                    let raw = parts[path_idx];
+                    match asr::resolve_audio_path(raw, &self.ctx.workspace, self.ctx.trust) {
+                        Ok(path) => {
+                            let client = AsrClient::from_config(
+                                &self.config.base_url,
+                                &self.config.api_key,
+                                self.config.asr_model.as_deref(),
+                            );
+                            match client.transcribe(&path).await {
+                                Ok(text) => {
+                                    if send {
+                                        let text = format!(
+                                            "[Audio transcript from {}]\n{}",
+                                            path.display(),
+                                            text
+                                        );
+                                        self.submit_user(text).await?;
+                                    } else {
+                                        self.messages.push(DisplayMessage::Info(format!(
+                                            "[Transcript from {}]\n{}",
+                                            path.display(),
+                                            text
+                                        )));
+                                    }
+                                }
+                                Err(e) => self.messages.push(DisplayMessage::Error(format!(
+                                    "Transcription failed: {}",
+                                    e
+                                ))),
+                            }
+                        }
+                        Err(e) => self.messages.push(DisplayMessage::Error(format!(
+                            "Failed to resolve audio path: {}",
+                            e
+                        ))),
+                    }
+                }
             }
             Some("save") => {
                 self.session.save(&self.config.sessions_dir()?)?;

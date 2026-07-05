@@ -14,6 +14,8 @@ pub struct ToolContext {
     pub yolo: bool,
     pub allow_shell: bool,
     pub job_manager: Option<Arc<tokio::sync::Mutex<JobManager>>>,
+    pub search_provider: Option<String>,
+    pub search_api_key: Option<String>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -24,6 +26,11 @@ impl std::fmt::Debug for ToolContext {
             .field("yolo", &self.yolo)
             .field("allow_shell", &self.allow_shell)
             .field("has_job_manager", &self.job_manager.is_some())
+            .field("search_provider", &self.search_provider)
+            .field(
+                "search_api_key",
+                &self.search_api_key.as_ref().map(|_| "***"),
+            )
             .finish()
     }
 }

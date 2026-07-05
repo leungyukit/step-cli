@@ -27,6 +27,12 @@ pub struct Config {
     pub max_rounds: usize,
     #[serde(default = "default_context_threshold")]
     pub context_threshold: f32,
+    #[serde(default)]
+    pub search_provider: Option<String>,
+    #[serde(default)]
+    pub search_api_key: Option<String>,
+    #[serde(default)]
+    pub asr_model: Option<String>,
 }
 
 impl Default for Config {
@@ -43,6 +49,9 @@ impl Default for Config {
             temperature: None,
             max_rounds: default_max_rounds(),
             context_threshold: default_context_threshold(),
+            search_provider: None,
+            search_api_key: None,
+            asr_model: Some(crate::chat::asr::DEFAULT_ASR_MODEL.to_string()),
         }
     }
 }
@@ -131,6 +140,21 @@ impl Config {
         {
             cfg.context_threshold = v.clamp(0.1, 1.0);
         }
+        if let Some(v) = env::var("STEP_SEARCH_PROVIDER")
+            .ok()
+            .filter(|s| !s.is_empty())
+        {
+            cfg.search_provider = Some(v);
+        }
+        if let Some(v) = env::var("STEP_SEARCH_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+        {
+            cfg.search_api_key = Some(v);
+        }
+        if let Some(v) = env::var("STEP_ASR_MODEL").ok().filter(|s| !s.is_empty()) {
+            cfg.asr_model = Some(v);
+        }
 
         if cfg.workspace.is_none() {
             cfg.workspace = Some(env::current_dir()?);
@@ -163,6 +187,15 @@ impl Config {
         }
         if let Some(threshold) = cli.context_threshold {
             self.context_threshold = threshold.clamp(0.1, 1.0);
+        }
+        if let Some(provider) = cli.search_provider.as_deref().filter(|s| !s.is_empty()) {
+            self.search_provider = Some(provider.to_string());
+        }
+        if let Some(key) = cli.search_api_key.as_deref().filter(|s| !s.is_empty()) {
+            self.search_api_key = Some(key.to_string());
+        }
+        if let Some(model) = cli.asr_model.as_deref().filter(|s| !s.is_empty()) {
+            self.asr_model = Some(model.to_string());
         }
     }
 

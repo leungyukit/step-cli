@@ -20,6 +20,17 @@ max_rounds = 30
 # When exceeded, oldest non-system messages are dropped. Range 0.1-1.0.
 context_threshold = 0.8
 
+# Web search provider. Supported: "serper", "tavily", "duckduckgo".
+# "serper" and "tavily" require search_api_key.
+# "duckduckgo" is free but uses HTML scraping and may be less stable.
+# search_provider = "duckduckgo"
+
+# API key for the configured web search provider (not needed for duckduckgo).
+# search_api_key = "..."
+
+# ASR model for audio transcription. Default: stepaudio-2.5-asr
+# asr_model = "stepaudio-2.5-asr"
+
 # Optional generation parameters.
 # temperature = 0.7
 # max_tokens = 4096

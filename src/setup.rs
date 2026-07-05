@@ -18,6 +18,9 @@ const PLANS: &[Plan] = &[
         default_model: "step-3.7-flash",
         models: &[
             "step-3.7-flash",
+            "step-3.5-flash",
+            "step-1o-turbo-vision",
+            "step-audio-2.5-chat",
             "step-2-16k",
             "step-1-8k",
             "step-1-32k",
@@ -29,7 +32,13 @@ const PLANS: &[Plan] = &[
         description: "Step Plan 接口，使用套餐额度",
         base_url: "https://api.stepfun.com/step_plan/v1",
         default_model: "step-3.7-flash",
-        models: &["step-3.7-flash", "step-3.5-flash", "step-3.5-flash-2603"],
+        models: &[
+            "step-3.7-flash",
+            "step-3.5-flash",
+            "step-3.5-flash-2603",
+            "step-1o-turbo-vision",
+            "step-audio-2.5-chat",
+        ],
     },
     Plan {
         name: "自定义",

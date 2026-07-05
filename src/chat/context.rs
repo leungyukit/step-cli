@@ -26,18 +26,43 @@ pub fn model_context_limit(model: &str) -> usize {
         "step-2-16k" => 16_384,
         "step-2-32k" => 32_768,
         "step-2-128k" => 128_000,
-        "step-3.7-flash" => 32_768,
-        "step-3-mini" => 32_768,
+        // 256K context models.
+        "step-3.5-flash" => 262_144,
+        "step-3.5-flash-2603" => 262_144,
+        "step-3.7-flash" => 262_144,
+        // Other chat / multimodal chat models.
         "step-3" => 32_768,
+        "step-3-mini" => 32_768,
+        "step-1o-turbo-vision" => 32_768,
+        "step-audio-2.5-chat" => 32_768,
         _ => DEFAULT_CONTEXT_LIMIT,
     }
 }
+
+/// Estimated tokens for an image attachment.
+const IMAGE_TOKENS_ESTIMATE: usize = 85;
 
 /// Count tokens in a single message (content + tool call names/arguments).
 fn count_message_tokens(msg: &Message) -> usize {
     let mut total = 0;
     if let Some(content) = &msg.content {
-        total += count_tokens(content);
+        match content {
+            crate::chat::session::Content::Text(text) => {
+                total += count_tokens(text);
+            }
+            crate::chat::session::Content::Parts(parts) => {
+                for part in parts {
+                    match part {
+                        crate::chat::session::ContentPart::Text { text } => {
+                            total += count_tokens(text);
+                        }
+                        crate::chat::session::ContentPart::ImageUrl { .. } => {
+                            total += IMAGE_TOKENS_ESTIMATE;
+                        }
+                    }
+                }
+            }
+        }
     }
     if let Some(tool_calls) = &msg.tool_calls {
         for call in tool_calls {
@@ -141,7 +166,11 @@ mod tests {
         assert_eq!(model_context_limit("step-1-8k"), 8_192);
         assert_eq!(model_context_limit("step-1-32k"), 32_768);
         assert_eq!(model_context_limit("step-2-16k"), 16_384);
-        assert_eq!(model_context_limit("step-3.7-flash"), 32_768);
+        assert_eq!(model_context_limit("step-3.5-flash"), 262_144);
+        assert_eq!(model_context_limit("step-3.5-flash-2603"), 262_144);
+        assert_eq!(model_context_limit("step-3.7-flash"), 262_144);
+        assert_eq!(model_context_limit("step-1o-turbo-vision"), 32_768);
+        assert_eq!(model_context_limit("step-audio-2.5-chat"), 32_768);
     }
 
     #[test]
@@ -199,7 +228,8 @@ mod tests {
         assert!(messages.iter().any(|m| {
             m.content
                 .as_ref()
-                .map(|c| c.contains("Context compressed"))
+                .and_then(|c| c.as_text())
+                .map(|t| t.contains("Context compressed"))
                 .unwrap_or(false)
         }));
         assert_eq!(messages[0].role, Role::System);

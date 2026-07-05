@@ -11,10 +11,12 @@ pub mod ui;
 use anyhow::{bail, Context, Result};
 use auth::PlatformAuth;
 use chat::approver::{AutoApprover, ConsoleApprover};
+use chat::asr::{self, AsrClient};
 use chat::client::{ChatClient, StreamEvent};
 use chat::executor::Executor;
 use chat::session::{Message, Session};
 use chat::tools::{ToolContext, ToolRegistry};
+use chat::vision;
 use clap::Parser;
 use cli::{Cli, Commands};
 use config::Config;
@@ -27,12 +29,42 @@ use tools::fs::{
 };
 use tools::mcp::load_mcp_tools;
 use tools::shell::ExecShellTool;
+use tools::web_search::WebSearchTool;
 
-const SYSTEM_PROMPT: &str = r#"You are step-cli, an AI coding assistant.
-You have access to a workspace on the local machine and a set of tools.
-Only use tools when necessary. Prefer reading before writing.
-When editing files, use the exact edit_file tool with old_string/new_string.
-Do not run destructive commands. The user must approve shell commands and file writes unless --yolo is enabled.
+const SYSTEM_PROMPT: &str = r#"You are step-cli, an AI coding assistant running on the user's local machine.
+You have access to the workspace and a set of tools. Use tools only when they are genuinely needed.
+
+## Intent routing — choose the right strategy
+For every user message, autonomously pick one or more of the following strategies:
+
+1. Direct answer (no tools)
+   Use when the question is about general knowledge, explanations, math, algorithms, coding concepts, or anything you already know confidently. Examples: "Explain Rust lifetimes", "What is a closure?", "How do I reverse a linked list?"
+
+2. Local file lookup
+   Use when the question is about the current workspace, project code, configuration, or local files. Tools: read_file, list_dir, glob_files, grep_files. Examples: "What does this function do?", "Find where the API key is loaded", "Show me the project structure".
+
+3. Web search
+   Use when the user asks about recent events, latest library versions, external documentation, public APIs, or facts that may have changed after your training data. Tool: web_search. Examples: "What is the latest React version?", "Rust 1.85 release notes", "Serper API pricing".
+
+4. Vision / image analysis
+   Use when the user message contains image attachments, or when the user describes or asks about visual content (screenshots, UI, design mockups, diagrams, photos, error dialogs). Directly analyze the attached image and answer based on what you see. If the user mentions an image but did not attach one, suggest using `/image <path>` or `![alt](path)` to attach it. Examples: "Why does this UI show an error?", "Analyze this design mockup", "What is wrong with this code screenshot?"
+
+5. Audio transcription
+   Use when the user provides an audio file or asks to transcribe / convert speech to text. The ASR tool will turn the audio into text; you can then answer or act on the transcript. Example: "Summarize this meeting recording" → transcribe the audio, then summarize.
+
+6. Combine strategies
+   For complex requests, chain strategies. Example: "How do I use the latest React 19 features in this project?" → web_search for React 19 docs, then read local files, then answer. Another example: analyze a screenshot while reading the actual source file it shows.
+
+Guidelines:
+- Prefer direct answers for general knowledge to avoid unnecessary latency.
+- Prefer local lookup when the answer clearly depends on the workspace.
+- Use web search when freshness or external facts matter.
+- When an image is attached, actively look at it and reference what you see.
+- When audio is attached or the user asks for transcription, transcribe first and then process the text.
+- When combining, explain your plan briefly before acting.
+- Prefer reading before writing.
+- When editing files, use the exact edit_file tool with old_string/new_string.
+- Do not run destructive commands. The user must approve shell commands and file writes unless --yolo is enabled.
 "#;
 
 fn build_registry() -> ToolRegistry {
@@ -44,6 +76,7 @@ fn build_registry() -> ToolRegistry {
     registry.register(Arc::new(GlobFilesTool));
     registry.register(Arc::new(GrepFilesTool));
     registry.register(Arc::new(ExecShellTool));
+    registry.register(Arc::new(WebSearchTool));
     registry
 }
 
@@ -69,6 +102,21 @@ async fn main() -> Result<()> {
     if matches!(cli.command, Some(Commands::Logout)) {
         PlatformAuth::logout()?;
         println!("已退出 StepFun 开放平台登录。");
+        return Ok(());
+    }
+    if let Some(Commands::Transcribe { audio, asr_model }) = cli.command {
+        let client = AsrClient::from_config(
+            &config.base_url,
+            &config.api_key,
+            asr_model.as_deref().or(config.asr_model.as_deref()),
+        );
+        let path = asr::resolve_audio_path(
+            &audio.to_string_lossy(),
+            config.workspace.as_ref().unwrap(),
+            config.trust,
+        )?;
+        let text = client.transcribe(&path).await?;
+        println!("{}", text);
         return Ok(());
     }
 
@@ -112,12 +160,15 @@ async fn main() -> Result<()> {
         yolo: config.yolo,
         allow_shell: config.allow_shell,
         job_manager: None,
+        search_provider: config.search_provider.clone(),
+        search_api_key: config.search_api_key.clone(),
     };
 
     let mut session = Session::new();
     session.push(Message::system(SYSTEM_PROMPT));
 
-    if let Some(prompt) = cli.prompt {
+    if let Some(ref prompt) = cli.prompt {
+        let user_message = build_headless_user_message(prompt, &cli, &config).await?;
         let approver: AutoApprover = AutoApprover(config.yolo);
         run_headless(
             &client,
@@ -125,7 +176,7 @@ async fn main() -> Result<()> {
             &ctx,
             &approver,
             &mut session,
-            &prompt,
+            user_message,
             &config,
         )
         .await?;
@@ -148,16 +199,52 @@ async fn run_headless(
     ctx: &ToolContext,
     approver: &dyn chat::approver::Approver,
     session: &mut Session,
-    prompt: &str,
+    user_message: Message,
     config: &Config,
 ) -> Result<()> {
-    session.push(Message::user(prompt));
+    session.push(user_message);
     run_agent_turn(client, registry, ctx, approver, session, config).await?;
     println!();
     if let Ok(dir) = Config::load().and_then(|c| c.sessions_dir()) {
         let _ = session.save(&dir);
     }
     Ok(())
+}
+
+async fn build_headless_user_message(prompt: &str, cli: &Cli, config: &Config) -> Result<Message> {
+    let workspace = config.workspace.as_ref().unwrap();
+
+    let mut text = prompt.to_string();
+    if let Some(audio) = &cli.audio {
+        let path = asr::resolve_audio_path(&audio.to_string_lossy(), workspace, config.trust)?;
+        let client = AsrClient::from_config(
+            &config.base_url,
+            &config.api_key,
+            cli.asr_model.as_deref().or(config.asr_model.as_deref()),
+        );
+        let transcript = client.transcribe(&path).await?;
+        text.push_str("\n\n[Audio transcript]\n");
+        text.push_str(&transcript);
+    }
+
+    if cli.image.is_empty() {
+        return Ok(Message::user(text));
+    }
+
+    if !vision::is_vision_model(&config.model) {
+        eprintln!(
+            "Warning: model {} may not support images. Use a vision model such as step-1o-turbo-vision.",
+            config.model
+        );
+    }
+
+    let mut image_paths = Vec::new();
+    for raw in &cli.image {
+        let path = vision::resolve_image_path(&raw.to_string_lossy(), workspace, config.trust)?;
+        image_paths.push(path);
+    }
+    let content = vision::build_user_content(&text, &image_paths)?;
+    Ok(Message::user(content))
 }
 
 async fn run_repl(
@@ -170,6 +257,7 @@ async fn run_repl(
 ) -> Result<()> {
     println!("step-cli REPL. Type /help for commands, /exit to quit.");
     let mut rl = rustyline::DefaultEditor::new()?;
+    let mut pending_images: Vec<PathBuf> = Vec::new();
     loop {
         let readline = rl.readline("step> ");
         match readline {
@@ -180,12 +268,22 @@ async fn run_repl(
                     continue;
                 }
                 if let Some(cmd) = line.strip_prefix('/') {
-                    match handle_slash(cmd, session, config).await? {
+                    match handle_slash(cmd, session, config, ctx, &mut pending_images).await? {
                         ReplAction::Continue => continue,
                         ReplAction::Exit => break,
+                        ReplAction::Send(msg) => {
+                            session.push(msg);
+                            print!("Assistant: ");
+                            let _ = std::io::stdout().flush();
+                            run_agent_turn(client, registry, ctx, approver, session, config)
+                                .await?;
+                            println!();
+                        }
                     }
                 } else {
-                    session.push(Message::user(line));
+                    let msg =
+                        build_repl_user_message(line, ctx, &mut pending_images, config).await?;
+                    session.push(msg);
                     print!("Assistant: ");
                     let _ = std::io::stdout().flush();
                     run_agent_turn(client, registry, ctx, approver, session, config).await?;
@@ -198,17 +296,51 @@ async fn run_repl(
     Ok(())
 }
 
+async fn build_repl_user_message(
+    line: &str,
+    ctx: &ToolContext,
+    pending_images: &mut Vec<std::path::PathBuf>,
+    config: &Config,
+) -> Result<Message> {
+    let (mut text, md_images) = vision::extract_image_paths(line);
+    let mut all_image_paths = std::mem::take(pending_images);
+    for raw in md_images {
+        let path = vision::resolve_image_path(&raw, &ctx.workspace, ctx.trust)?;
+        all_image_paths.push(path);
+    }
+    if all_image_paths.is_empty() {
+        return Ok(Message::user(text));
+    }
+    if !vision::is_vision_model(&config.model) {
+        eprintln!(
+            "Warning: model {} may not support images. Use a vision model such as step-1o-turbo-vision.",
+            config.model
+        );
+    }
+    // Trim whitespace left behind by removed markdown image references.
+    text = text.trim().to_string();
+    let content = vision::build_user_content(&text, &all_image_paths)?;
+    Ok(Message::user(content))
+}
+
 enum ReplAction {
     Continue,
     Exit,
+    Send(Message),
 }
 
-async fn handle_slash(cmd: &str, session: &mut Session, config: &Config) -> Result<ReplAction> {
+async fn handle_slash(
+    cmd: &str,
+    session: &mut Session,
+    config: &Config,
+    ctx: &ToolContext,
+    pending_images: &mut Vec<std::path::PathBuf>,
+) -> Result<ReplAction> {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     match parts.first().copied() {
         Some("help") => {
             println!(
-                "Commands: /help, /exit, /clear, /save, /sessions, /jobs, /checkpoint, /restore, /login, /logout"
+                "Commands: /help, /exit, /clear, /save, /sessions, /jobs, /checkpoint, /restore, /login, /logout, /image <path>, /transcribe [--send] <path>"
             );
         }
         Some("exit" | "quit") => return Ok(ReplAction::Exit),
@@ -216,6 +348,7 @@ async fn handle_slash(cmd: &str, session: &mut Session, config: &Config) -> Resu
             session
                 .messages
                 .retain(|m| m.role == chat::session::Role::System);
+            pending_images.clear();
             println!("Cleared conversation history.");
         }
         Some("save") => {
@@ -228,6 +361,53 @@ async fn handle_slash(cmd: &str, session: &mut Session, config: &Config) -> Resu
             if let Ok(dir) = config.sessions_dir() {
                 for entry in std::fs::read_dir(dir)?.flatten() {
                     println!("{}", entry.file_name().to_string_lossy());
+                }
+            }
+        }
+        Some("image") => {
+            if parts.len() < 2 {
+                println!("Usage: /image <path>");
+            } else {
+                let raw = parts[1];
+                match vision::resolve_image_path(raw, &ctx.workspace, ctx.trust) {
+                    Ok(path) => {
+                        pending_images.push(path.clone());
+                        println!("Attached image: {}", path.display());
+                    }
+                    Err(e) => eprintln!("Failed to attach image: {}", e),
+                }
+            }
+        }
+        Some("transcribe") => {
+            let send = parts.get(1).copied() == Some("--send");
+            let path_idx = if send { 2 } else { 1 };
+            if parts.len() <= path_idx {
+                println!("Usage: /transcribe [--send] <path>");
+            } else {
+                let raw = parts[path_idx];
+                match asr::resolve_audio_path(raw, &ctx.workspace, ctx.trust) {
+                    Ok(path) => {
+                        let client = AsrClient::from_config(
+                            &config.base_url,
+                            &config.api_key,
+                            config.asr_model.as_deref(),
+                        );
+                        match client.transcribe(&path).await {
+                            Ok(text) => {
+                                if send {
+                                    return Ok(ReplAction::Send(Message::user(format!(
+                                        "[Audio transcript from {}]\n{}",
+                                        path.display(),
+                                        text
+                                    ))));
+                                } else {
+                                    println!("[Transcript]\n{}", text);
+                                }
+                            }
+                            Err(e) => eprintln!("Transcription failed: {}", e),
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to resolve audio path: {}", e),
                 }
             }
         }
@@ -294,7 +474,7 @@ async fn run_agent_turn(
                     print_flush(&delta);
                 }
                 StreamEvent::Done => {
-                    session.push(Message::assistant(&content));
+                    session.push(Message::assistant(content.as_str()));
                     return Ok(content);
                 }
                 StreamEvent::ToolCalls(calls) => {
@@ -312,7 +492,7 @@ async fn run_agent_turn(
                 session.push(Message::tool(id, result));
             }
         } else {
-            session.push(Message::assistant(&content));
+            session.push(Message::assistant(content.as_str()));
             return Ok(content);
         }
     }

@@ -21,7 +21,7 @@ A Rust CLI coding agent for StepFun models.
 ## Modules
 
 - `src/auth.rs` — StepFun open platform login state management.
-- `src/chat/` — LLM client, SSE streaming, messages, tools registry, executor, approval.
+- `src/chat/` — LLM client, SSE streaming, messages, tools registry, executor, approval, vision, ASR.
 - `src/tools/` — built-in tools (fs, shell) and MCP client.
 - `src/ui/` — ratatui TUI and REPL dispatcher.
 - `src/runtime/` — background jobs and checkpoints.
@@ -50,6 +50,11 @@ See `README.md` for user-facing documentation.
 - Browser login uses `chromiumoxide` to launch Chrome/Chromium and automatically capture session cookies.
 - API keys are no longer required to start with `sk-`; any non-empty key is accepted.
 - Context compression: when `session.messages` tokens exceed `context_threshold * model_context_limit`, the oldest non-system messages are dropped and a system notice is inserted before the LLM call. System prompts are always preserved.
+- Web search: a `web_search` tool is available when configured. Supported providers: `serper`, `tavily` (both require API key), and `duckduckgo` (free HTML scraping). The model cannot browse directly; it calls this tool and receives formatted snippets/URLs.
+- Vision support: images can be attached to user messages via `--image` / `-i`, `/image <path>`, or Markdown image syntax `![alt](path)`. Local images are base64-encoded into OpenAI-style `image_url` content parts. Use a vision-capable model such as `step-1o-turbo-vision`.
+- ASR support: audio files can be transcribed with StepFun `stepaudio-2.5-asr` via the `transcribe` subcommand, `--audio` / `-a`, or `/transcribe [--send] <path>`. The SSE endpoint is `{base_url}/audio/asr/sse`.
+- Intent routing: the system prompt instructs the model to autonomously choose among (1) direct answer, (2) local file lookup, (3) web search, (4) vision/image analysis, and (5) audio transcription, and to combine them when useful.
+- Supported chat/vision models include `step-3.7-flash`, `step-3.5-flash`, `step-3.5-flash-2603` (256K context), `step-1o-turbo-vision`, `step-audio-2.5-chat`, and the legacy `step-1-*` / `step-2-*` models. ASR/TTS/image models are not supported by the chat endpoint.
 
 ## Agent Query Strategy
 
